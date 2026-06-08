@@ -24,23 +24,23 @@ constexpr unsigned short websocket_port = 4457;
 constexpr int broadcast_interval_ms = 16;
 constexpr int rescan_interval_ticks = 40;
 
-struct SourceLevel {
-	std::string uuid;
-	std::string name;
+struct ChannelLevel {
 	float magnitude_db = -INFINITY;
 	float peak_db = -INFINITY;
 	float input_peak_db = -INFINITY;
-	int channels = 0;
+};
+
+struct SourceLevel {
+	std::string uuid;
+	std::string name;
+	std::vector<ChannelLevel> channels;
 };
 
 struct AudioMeter {
 	std::string uuid;
 	std::string name;
 	obs_volmeter_t *volmeter = nullptr;
-	float magnitude_db = -INFINITY;
-	float peak_db = -INFINITY;
-	float input_peak_db = -INFINITY;
-	int channels = 0;
+	std::vector<ChannelLevel> channels;
 	std::mutex mutex;
 
 	AudioMeter(std::string meter_uuid, std::string meter_name, obs_source_t *source)
@@ -66,7 +66,7 @@ struct AudioMeter {
 	SourceLevel snapshot()
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		return {uuid, name, magnitude_db, peak_db, input_peak_db, channels};
+		return {uuid, name, channels};
 	}
 
 	static void on_levels_updated(void *param, const float magnitude[MAX_AUDIO_CHANNELS],
@@ -74,21 +74,15 @@ struct AudioMeter {
 	{
 		auto *meter = static_cast<AudioMeter *>(param);
 		const int channel_count = std::max(1, obs_volmeter_get_nr_channels(meter->volmeter));
-		float max_magnitude = -INFINITY;
-		float max_peak = -INFINITY;
-		float max_input_peak = -INFINITY;
 
+		std::vector<ChannelLevel> channels;
+		channels.reserve(channel_count);
 		for (int index = 0; index < channel_count && index < MAX_AUDIO_CHANNELS; ++index) {
-			max_magnitude = std::max(max_magnitude, magnitude[index]);
-			max_peak = std::max(max_peak, peak[index]);
-			max_input_peak = std::max(max_input_peak, input_peak[index]);
+			channels.push_back({magnitude[index], peak[index], input_peak[index]});
 		}
 
 		std::lock_guard<std::mutex> lock(meter->mutex);
-		meter->magnitude_db = max_magnitude;
-		meter->peak_db = max_peak;
-		meter->input_peak_db = max_input_peak;
-		meter->channels = channel_count;
+		meter->channels = std::move(channels);
 	}
 };
 
@@ -154,13 +148,20 @@ std::string make_payload(const std::vector<SourceLevel> &levels)
 		if (index > 0)
 			json << ',';
 		json << "{\"uuid\":\"" << json_escape(level.uuid) << "\",\"name\":\"" << json_escape(level.name)
-		     << "\",\"magnitudeDb\":";
-		append_db(json, level.magnitude_db);
-		json << ",\"peakDb\":";
-		append_db(json, level.peak_db);
-		json << ",\"inputPeakDb\":";
-		append_db(json, level.input_peak_db);
-		json << ",\"channels\":" << level.channels << '}';
+		     << "\",\"channels\":[";
+		for (size_t ch = 0; ch < level.channels.size(); ++ch) {
+			const auto &channel = level.channels[ch];
+			if (ch > 0)
+				json << ',';
+			json << "{\"magnitude\":";
+			append_db(json, channel.magnitude_db);
+			json << ",\"peak\":";
+			append_db(json, channel.peak_db);
+			json << ",\"inputPeak\":";
+			append_db(json, channel.input_peak_db);
+			json << '}';
+		}
+		json << "]}";
 	}
 	json << "]}";
 	return json.str();
