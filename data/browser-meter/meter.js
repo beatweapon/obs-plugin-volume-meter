@@ -17,14 +17,6 @@ function dbToPercent(db) {
   return ((clamped - MIN_DB) / (MAX_DB - MIN_DB)) * 100;
 }
 
-function formatDb(db) {
-  if (db === null || db === undefined || !Number.isFinite(db)) {
-    return "-∞ dB";
-  }
-
-  return `${db.toFixed(1)} dB`;
-}
-
 function getMeterElement(source) {
   let item = meterElements.get(source.uuid);
   if (item) {
@@ -40,10 +32,7 @@ function getMeterElement(source) {
 
   const header = document.createElement("div");
   header.className = "meter-header";
-  header.innerHTML = `
-		<div class="name"></div>
-		<div class="db"></div>
-	`;
+  header.innerHTML = `<div class="name"></div>`;
   item.container.appendChild(header);
 
   const channelsDiv = document.createElement("div");
@@ -113,7 +102,6 @@ function render(payload) {
         maxPeakDb = Math.max(maxPeakDb, channel.peak);
       }
     }
-    header.querySelector(".db").textContent = formatDb(maxPeakDb);
 
     // チャンネル削除: 古いチャンネルを削除
     const currentChannelCount = source.channels?.length ?? 0;

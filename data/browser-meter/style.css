@@ -62,13 +62,6 @@ body {
   flex: 1;
 }
 
-.db {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  min-width: 80px;
-}
-
 .channels {
   display: flex;
   gap: 8px;
