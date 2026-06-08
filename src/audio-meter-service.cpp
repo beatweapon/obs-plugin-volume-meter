@@ -21,7 +21,7 @@
 
 namespace {
 constexpr unsigned short websocket_port = 4457;
-constexpr int broadcast_interval_ms = 50;
+constexpr int broadcast_interval_ms = 16;
 constexpr int rescan_interval_ticks = 40;
 
 struct SourceLevel {
