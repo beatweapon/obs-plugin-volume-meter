@@ -17,6 +17,16 @@ function dbToPercent(db) {
   return ((clamped - MIN_DB) / (MAX_DB - MIN_DB)) * 100;
 }
 
+document.documentElement.style.setProperty(
+  "--yellow-pos",
+  `${dbToPercent(YELLOW_THRESHOLD_DB)}%`,
+);
+
+document.documentElement.style.setProperty(
+  "--red-pos",
+  `${dbToPercent(RED_THRESHOLD_DB)}%`,
+);
+
 function getMeterElement(source) {
   let item = meterElements.get(source.uuid);
   if (item) {
@@ -52,8 +62,6 @@ function getChannelElement(meterItem, channelIndex, source) {
     channelDiv.innerHTML = `
 			<div class="bar">
 				<div class="fill"></div>
-				<div class="threshold-yellow"></div>
-				<div class="threshold-red"></div>
 				<div class="magnitude-line"></div>
 				<div class="peak"></div>
 			</div>
@@ -64,10 +72,7 @@ function getChannelElement(meterItem, channelIndex, source) {
       container: channelDiv,
       fill: channelDiv.querySelector(".fill"),
       magnitudeLine: channelDiv.querySelector(".magnitude-line"),
-      thresholdYellow: channelDiv.querySelector(".threshold-yellow"),
-      thresholdRed: channelDiv.querySelector(".threshold-red"),
       peak: channelDiv.querySelector(".peak"),
-      magnitudeLine: channelDiv.querySelector(".magnitude-line"),
       lastPeakDb: -Infinity,
       peakHoldStart: 0,
       clippingStart: 0,
@@ -125,12 +130,10 @@ function render(payload) {
         100,
         Math.max(0, dbToPercent(magnitude)),
       );
-      chElement.magnitudeLine.style.bottom = `${magnitude_percent}%`;
-      chElement.magnitudeLine.style.display = "block";
-
-      // 閾値の位置をパーセント値で計算
-      const yellowThresholdPercent = dbToPercent(YELLOW_THRESHOLD_DB);
-      const redThresholdPercent = dbToPercent(RED_THRESHOLD_DB);
+      chElement.magnitudeLine.style.setProperty(
+        "--magnitude",
+        `${magnitude_percent}%`,
+      );
 
       // ピークに基づいてフィル高さを更新
       const peakPercent = Math.min(100, Math.max(0, dbToPercent(peak)));
@@ -156,27 +159,7 @@ function render(payload) {
       }
 
       // フィルの高さを適用
-      chElement.fill.style.height = `${chElement.fillHeight}%`;
-
-      // 黄色領域の高さ（-20dB以上の部分）
-      if (chElement.fillHeight > yellowThresholdPercent) {
-        const yellowHeight = chElement.fillHeight - yellowThresholdPercent;
-        chElement.thresholdYellow.style.height = `${yellowHeight}%`;
-        chElement.thresholdYellow.style.bottom = `${yellowThresholdPercent}%`;
-        chElement.thresholdYellow.style.display = "block";
-      } else {
-        chElement.thresholdYellow.style.display = "none";
-      }
-
-      // 赤色領域の高さ（-8dB以上の部分）
-      if (chElement.fillHeight > redThresholdPercent) {
-        const redHeight = chElement.fillHeight - redThresholdPercent;
-        chElement.thresholdRed.style.height = `${redHeight}%`;
-        chElement.thresholdRed.style.bottom = `${redThresholdPercent}%`;
-        chElement.thresholdRed.style.display = "block";
-      } else {
-        chElement.thresholdRed.style.display = "none";
-      }
+      chElement.fill.style.setProperty("--level", `${chElement.fillHeight}%`);
 
       // ピークの更新と表示時間管理
       if (Number.isFinite(peak) && peak !== null) {
@@ -214,41 +197,17 @@ function render(payload) {
           100,
           Math.max(0, dbToPercent(chElement.lastPeakDb)),
         );
-        chElement.peak.style.bottom = `${peakPercent}%`;
-        chElement.peak.style.display = "block";
-
-        // ピークの色を値に基づいて設定
-        chElement.peak.classList.remove(
-          "peak-yellow",
-          "peak-red",
-          "peak-green",
-        );
-        if (chElement.lastPeakDb >= RED_THRESHOLD_DB) {
-          chElement.peak.classList.add("peak-red");
-        } else if (chElement.lastPeakDb >= YELLOW_THRESHOLD_DB) {
-          chElement.peak.classList.add("peak-yellow");
-        } else {
-          chElement.peak.classList.add("peak-green");
-        }
+        chElement.peak.style.setProperty("--peak", `${peakPercent}%`);
       } else {
-        chElement.peak.style.display = "none";
+        chElement.peak.style.setProperty("--peak", `-100%`);
       }
 
       // クリッピング状態の管理（5秒間ゲージ全体を赤くする）
       const timeSinceClipping = now - chElement.clippingStart;
       if (timeSinceClipping < 1000) {
         chElement.fill.classList.add("clipping");
-        chElement.thresholdYellow.style.display = "none";
-        chElement.thresholdRed.style.display = "none";
       } else {
         chElement.fill.classList.remove("clipping");
-        // 通常の状態に戻す（黄色と赤色領域を再表示）
-        if (magnitude_percent > yellowThresholdPercent) {
-          chElement.thresholdYellow.style.display = "block";
-        }
-        if (magnitude_percent > redThresholdPercent) {
-          chElement.thresholdRed.style.display = "block";
-        }
       }
     }
   }
