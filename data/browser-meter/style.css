@@ -102,7 +102,6 @@ body {
           position: absolute;
           bottom: 0;
           z-index: 1;
-          transition: clip-path 46ms linear;
           clip-path: inset(calc(100% - var(--level)) 0 0 0);
         }
 
@@ -117,7 +116,6 @@ body {
           position: absolute;
           bottom: 0;
           z-index: 4;
-          transition: clip-path 46ms linear;
           clip-path: inset(
             calc(100% - (var(--magnitude) + 0.5%)) 0 calc(var(--magnitude)) 0
           );
@@ -130,8 +128,6 @@ body {
           width: 100%;
           height: 100%;
           z-index: 10;
-
-          transition: clip-path 46ms linear;
           clip-path: inset(
             calc(100% - (var(--peak) + 0.5%)) 0 calc(var(--peak)) 0
           );
