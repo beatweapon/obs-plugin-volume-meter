@@ -72,8 +72,9 @@ function getMeterElement(source) {
   item.channelsContainer = channelsDiv;
 
   meters.appendChild(item.container);
-  sortMeters();
   meterElements.set(source.uuid, item);
+  sortMeters();
+
   return item;
 }
 
