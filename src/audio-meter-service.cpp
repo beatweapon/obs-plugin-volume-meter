@@ -33,17 +33,19 @@ struct ChannelLevel {
 struct SourceLevel {
 	std::string uuid;
 	std::string name;
+	bool muted = false;
 	std::vector<ChannelLevel> channels;
 };
 
 struct AudioMeter {
 	std::string uuid;
 	std::string name;
+	bool muted = false;
 	obs_volmeter_t *volmeter = nullptr;
 	std::vector<ChannelLevel> channels;
 	std::mutex mutex;
 
-	AudioMeter(std::string meter_uuid, std::string meter_name, obs_source_t *source)
+	AudioMeter(std::string meter_uuid, std::string meter_name, bool meter_muted, obs_source_t *source)
 		: uuid(std::move(meter_uuid)),
 		  name(std::move(meter_name))
 	{
@@ -66,7 +68,7 @@ struct AudioMeter {
 	SourceLevel snapshot()
 	{
 		std::lock_guard<std::mutex> lock(mutex);
-		return {uuid, name, channels};
+		return {uuid, name, muted, channels};
 	}
 
 	static void on_levels_updated(void *param, const float magnitude[MAX_AUDIO_CHANNELS],
@@ -156,7 +158,7 @@ std::string make_payload(const std::vector<SourceLevel> &levels)
 		if (index > 0)
 			json << ',';
 		json << "{\"uuid\":\"" << json_escape(level.uuid) << "\",\"name\":\"" << json_escape(level.name)
-		     << "\",\"channels\":[";
+		     << "\",\"muted\":" << (level.muted ? "true" : "false") << ",\"channels\":[";
 		for (size_t ch = 0; ch < level.channels.size(); ++ch) {
 			const auto &channel = level.channels[ch];
 			if (ch > 0)
@@ -194,10 +196,11 @@ bool enum_audio_sources(void *param, obs_source_t *source)
 	std::lock_guard<std::mutex> lock(meters_mutex);
 	auto existing = meters.find(uuid);
 	if (existing == meters.end())
-		meters.emplace(uuid, std::make_unique<AudioMeter>(uuid, name, source));
+		meters.emplace(uuid, std::make_unique<AudioMeter>(uuid, name, obs_source_muted(source), source));
 	else {
 		std::lock_guard<std::mutex> meter_lock(existing->second->mutex);
 		existing->second->name = name;
+		existing->second->muted = obs_source_muted(source);
 	}
 
 	return true;
@@ -231,7 +234,13 @@ std::vector<SourceLevel> snapshot_levels()
 		std::lock_guard<std::mutex> lock(output_meter.mutex);
 
 		if (!output_meter.channels.empty()) {
-			levels.push_back({"__master__", output_meter.name, output_meter.channels});
+			SourceLevel master;
+			master.uuid = "__master__";
+			master.name = output_meter.name;
+			master.muted = false;
+			master.channels = output_meter.channels;
+
+			levels.push_back(std::move(master));
 		}
 	}
 
