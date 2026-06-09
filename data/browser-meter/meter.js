@@ -30,6 +30,11 @@ document.documentElement.style.setProperty(
 function getMeterElement(source) {
   let item = meterElements.get(source.uuid);
   if (item) {
+    if (item.sourceName !== source.name) {
+      item.sourceName = source.name;
+      sortMeters();
+    }
+
     return item;
   }
 
@@ -37,6 +42,7 @@ function getMeterElement(source) {
     container: document.createElement("section"),
     channels: new Map(),
     lastPeakTime: {},
+    sourceName: source.name,
   };
   item.container.className = "meter";
 
@@ -51,9 +57,20 @@ function getMeterElement(source) {
   item.channelsContainer = channelsDiv;
 
   meters.appendChild(item.container);
+  sortMeters();
   meterElements.set(source.uuid, item);
   return item;
 }
+
+const sortMeters = () => {
+  const items = [...meterElements.values()];
+
+  items.sort((a, b) => a.sourceName.localeCompare(b.sourceName, "ja"));
+
+  for (const item of items) {
+    meters.appendChild(item.container);
+  }
+};
 
 function getChannelElement(meterItem, channelIndex, source) {
   if (!meterItem.channels.has(channelIndex)) {
