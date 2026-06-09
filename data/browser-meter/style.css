@@ -144,6 +144,12 @@ body {
       }
     }
   }
+
+  &.muted {
+    .channel {
+      filter: grayscale(100%);
+    }
+  }
 }
 
 .master-warning {

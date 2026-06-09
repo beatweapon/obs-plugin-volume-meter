@@ -142,6 +142,13 @@ function render(payload) {
     const header = meterItem.container.querySelector(".meter-header");
     header.querySelector(".name").textContent = source.name;
 
+    // ミュート状態の反映
+    if (source.muted) {
+      meterItem.container.classList.add("muted");
+    } else {
+      meterItem.container.classList.remove("muted");
+    }
+
     // ピーク値の計算（全チャンネルの最大値）
     let maxPeakDb = -Infinity;
     for (const channel of source.channels ?? []) {
