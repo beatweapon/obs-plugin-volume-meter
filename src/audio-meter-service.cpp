@@ -276,7 +276,7 @@ static void on_master_audio(void *param, size_t mix_idx, struct audio_data *data
 
 	std::vector<ChannelLevel> channels;
 
-	for (int channel = 0; channel < MAX_AUDIO_CHANNELS; ++channel) {
+	for (int channel = 0; channel < 2; ++channel) {
 		float *samples = reinterpret_cast<float *>(data->data[channel]);
 
 		if (!samples)
