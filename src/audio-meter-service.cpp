@@ -86,6 +86,14 @@ struct AudioMeter {
 	}
 };
 
+struct OutputMeter {
+	std::string name = "Master";
+	std::vector<ChannelLevel> channels;
+	std::mutex mutex;
+};
+
+static OutputMeter output_meter;
+
 std::atomic<bool> running(false);
 std::thread worker_thread;
 std::mutex meters_mutex;
@@ -212,10 +220,21 @@ void rescan_sources()
 std::vector<SourceLevel> snapshot_levels()
 {
 	std::vector<SourceLevel> levels;
-	std::lock_guard<std::mutex> lock(meters_mutex);
-	levels.reserve(meters.size());
-	for (auto &entry : meters)
-		levels.push_back(entry.second->snapshot());
+
+	{
+		std::lock_guard<std::mutex> lock(meters_mutex);
+		levels.reserve(meters.size());
+		for (auto &entry : meters)
+			levels.push_back(entry.second->snapshot());
+	}
+	{
+		std::lock_guard<std::mutex> lock(output_meter.mutex);
+
+		if (!output_meter.channels.empty()) {
+			levels.push_back({"__master__", output_meter.name, output_meter.channels});
+		}
+	}
+
 	return levels;
 }
 
@@ -235,10 +254,65 @@ void worker_loop()
 }
 }
 
+
+
+static void on_master_audio(void *param, size_t mix_idx, struct audio_data *data)
+{
+	if (!data)
+		return;
+
+	const uint32_t frames = data->frames;
+	if (frames == 0)
+		return;
+
+	std::vector<ChannelLevel> channels;
+
+	for (int channel = 0; channel < MAX_AUDIO_CHANNELS; ++channel) {
+		float *samples = reinterpret_cast<float *>(data->data[channel]);
+
+		if (!samples)
+			break;
+
+		float peak = 0.0f;
+		float sum = 0.0f;
+
+		for (uint32_t i = 0; i < frames; ++i) {
+			const float sample = samples[i];
+
+			peak = std::max(peak, std::abs(sample));
+			sum += sample * sample;
+		}
+
+		const float magnitude = std::sqrt(sum / static_cast<float>(frames));
+
+		ChannelLevel level;
+
+		level.magnitude_db = magnitude > 0.0f ? 20.0f * std::log10(magnitude) : -INFINITY;
+
+		level.peak_db = peak > 0.0f ? 20.0f * std::log10(peak) : -INFINITY;
+
+		// MasterにはinputPeakの概念がないのでpeakと同じで良い
+		level.input_peak_db = level.peak_db;
+
+		channels.push_back(level);
+	}
+
+	{
+		std::lock_guard<std::mutex> lock(output_meter.mutex);
+		output_meter.channels = std::move(channels);
+	}
+}
+
+
 bool audio_meter_service_start(void)
 {
 	if (running.exchange(true))
 		return true;
+
+	audio_convert_info conversion{};
+	conversion.format = AUDIO_FORMAT_FLOAT_PLANAR;
+
+	obs_add_raw_audio_callback(0, &conversion, on_master_audio, nullptr);
 
 	if (!ws_server_start(websocket_port)) {
 		running.store(false);
@@ -247,6 +321,8 @@ bool audio_meter_service_start(void)
 
 	worker_thread = std::thread(worker_loop);
 	obs_log(LOG_INFO, "audio meter WebSocket server started on ws://127.0.0.1:%u", websocket_port);
+
+
 	return true;
 }
 
@@ -262,6 +338,8 @@ void audio_meter_service_stop(void)
 		std::lock_guard<std::mutex> lock(meters_mutex);
 		meters.clear();
 	}
+
+	obs_remove_raw_audio_callback(0, on_master_audio, nullptr);
 
 	ws_server_stop();
 	obs_log(LOG_INFO, "audio meter WebSocket server stopped");
