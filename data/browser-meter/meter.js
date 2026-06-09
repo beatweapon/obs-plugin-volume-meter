@@ -7,6 +7,8 @@ const YELLOW_THRESHOLD_DB = -20; // 黄色表示のしきい値
 const RED_THRESHOLD_DB = -9; // 赤色表示のしきい値
 const MIN_DB = -60;
 const MAX_DB = 0;
+const MASTER_WARNING_DB = -3;
+const MASTER_CLIP_DB = -1;
 
 // 本家OBS (frontend/components/VolumeMeter.cpp) の弾道(ballistics)に準拠。
 // 計算はすべてdB領域で行う。
@@ -15,6 +17,11 @@ const MAX_DB = 0;
 const MAGNITUDE_INTEGRATION_TIME = 0.3; // 秒。99%整定までの時間。
 // ピーク: 上昇は即時、下降のみ線形減衰。20dB / 1.7秒 ≒ 11.76 dB/秒（本家Medium既定）。
 const PEAK_DECAY_RATE = 25; // dB/秒
+
+/** masterボリュームの状態 */
+const masterState = {
+  lastClipTime: 0,
+};
 
 function dbToPercent(db) {
   if (db === null || db === undefined || !Number.isFinite(db)) {
@@ -73,7 +80,15 @@ function getMeterElement(source) {
 const sortMeters = () => {
   const items = [...meterElements.values()];
 
-  items.sort((a, b) => a.sourceName.localeCompare(b.sourceName, "ja"));
+  items.sort((a, b) => {
+    const aIsMaster = a.sourceName === "Master";
+    const bIsMaster = b.sourceName === "Master";
+
+    if (aIsMaster && !bIsMaster) return -1;
+    if (!aIsMaster && bIsMaster) return 1;
+
+    return a.sourceName.localeCompare(b.sourceName, "ja");
+  });
 
   for (const item of items) {
     meters.appendChild(item.container);
@@ -132,6 +147,27 @@ function render(payload) {
     for (const channel of source.channels ?? []) {
       if (Number.isFinite(channel.peak)) {
         maxPeakDb = Math.max(maxPeakDb, channel.peak);
+      }
+
+      // masterだけ特殊処理
+      if (source.uuid === "__master__") {
+        if (maxPeakDb >= MASTER_CLIP_DB) {
+          masterState.lastClipTime = now;
+        }
+
+        const clippingAge = now - masterState.lastClipTime;
+
+        if (clippingAge < 1000) {
+          meterItem.container.classList.add("master-clipping");
+        } else {
+          meterItem.container.classList.remove("master-clipping");
+        }
+
+        if (maxPeakDb >= MASTER_WARNING_DB) {
+          meterItem.container.classList.add("master-warning");
+        } else {
+          meterItem.container.classList.remove("master-warning");
+        }
       }
     }
 
