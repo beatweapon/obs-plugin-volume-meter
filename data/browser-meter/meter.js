@@ -8,6 +8,14 @@ const RED_THRESHOLD_DB = -9; // 赤色表示のしきい値
 const MIN_DB = -60;
 const MAX_DB = 0;
 
+// 本家OBS (frontend/components/VolumeMeter.cpp) の弾道(ballistics)に準拠。
+// 計算はすべてdB領域で行う。
+// マグニチュード: 上昇・下降とも同一の式。係数 (dt/τ)*0.99 で目標値へ追従する。
+// 本家の calculateBallisticsForChannel() と同じ簡易離散化で、本家どおり対称。
+const MAGNITUDE_INTEGRATION_TIME = 0.3; // 秒。99%整定までの時間。
+// ピーク: 上昇は即時、下降のみ線形減衰。20dB / 1.7秒 ≒ 11.76 dB/秒（本家Medium既定）。
+const PEAK_DECAY_RATE = 25; // dB/秒
+
 function dbToPercent(db) {
   if (db === null || db === undefined || !Number.isFinite(db)) {
     return 0;
@@ -93,8 +101,10 @@ function getChannelElement(meterItem, channelIndex, source) {
       lastPeakDb: -Infinity,
       peakHoldStart: 0,
       clippingStart: 0,
-      fillHeight: 0,
       lastUpdateTime: 0,
+      // 弾道処理後の表示用dB値（本家のdisplayMagnitude / displayPeakに相当）
+      displayMagnitudeDb: -Infinity,
+      displayPeakDb: -Infinity,
     });
   }
   return meterItem.channels.get(channelIndex);
@@ -142,41 +152,62 @@ function render(payload) {
       const magnitude = channel.magnitude ?? -Infinity;
       const peak = channel.peak ?? -Infinity;
 
-      // マグニチュード（現在値）を黒いラインで表現
+      // 経過時間（秒）。弾道計算に使う。
+      const deltaTime =
+        chElement.lastUpdateTime > 0
+          ? (now - chElement.lastUpdateTime) / 1000
+          : 0;
+      chElement.lastUpdateTime = now;
+
+      // --- マグニチュード弾道（dB領域・本家の式そのまま）---
+      // attack = (current - display) * (dt/τ) * 0.99 を表示値に加算。
+      // 差に同じ係数を掛けるだけなので上昇・下降とも対称（本家どおり）。
+      const currentMagnitudeDb = Math.max(MIN_DB, magnitude);
+      if (!Number.isFinite(chElement.displayMagnitudeDb)) {
+        chElement.displayMagnitudeDb = currentMagnitudeDb;
+      } else {
+        const attack =
+          (currentMagnitudeDb - chElement.displayMagnitudeDb) *
+          (deltaTime / MAGNITUDE_INTEGRATION_TIME) *
+          0.99;
+        chElement.displayMagnitudeDb = Math.max(
+          MIN_DB,
+          Math.min(MAX_DB, chElement.displayMagnitudeDb + attack),
+        );
+      }
+
+      // マグニチュード（平滑化後）を黒いラインで表現
       const magnitude_percent = Math.min(
         100,
-        Math.max(0, dbToPercent(magnitude)),
+        Math.max(0, dbToPercent(chElement.displayMagnitudeDb)),
       );
       chElement.magnitudeLine.style.setProperty(
         "--magnitude",
         `${magnitude_percent}%`,
       );
 
-      // ピークに基づいてフィル高さを更新
-      const peakPercent = Math.min(100, Math.max(0, dbToPercent(peak)));
-      const targetHeight = peakPercent;
-
-      const deltaTime =
-        chElement.lastUpdateTime > 0
-          ? (now - chElement.lastUpdateTime) / 1000
-          : 0;
-
-      chElement.lastUpdateTime = now;
-
-      if (targetHeight > chElement.fillHeight) {
-        // 上昇は即時
-        chElement.fillHeight = targetHeight;
+      // --- ピーク弾道（dB領域・本家の式そのまま）---
+      // 上昇は即時、下降のみ線形減衰。下限は min(peak, 0)、上限は 0 でクランプ。
+      // バー本体(fill)はこの表示用ピーク値で描画する。
+      if (
+        !Number.isFinite(chElement.displayPeakDb) ||
+        peak >= chElement.displayPeakDb
+      ) {
+        chElement.displayPeakDb = peak;
       } else {
-        // 下降はゆっくり
-        const decayPerSecond = 40;
-        chElement.fillHeight = Math.max(
-          targetHeight,
-          chElement.fillHeight - decayPerSecond * deltaTime,
+        const decay = PEAK_DECAY_RATE * deltaTime;
+        chElement.displayPeakDb = Math.min(
+          MAX_DB,
+          Math.max(Math.min(peak, MAX_DB), chElement.displayPeakDb - decay),
         );
       }
 
       // フィルの高さを適用
-      chElement.fill.style.setProperty("--level", `${chElement.fillHeight}%`);
+      const fillPercent = Math.min(
+        100,
+        Math.max(0, dbToPercent(chElement.displayPeakDb)),
+      );
+      chElement.fill.style.setProperty("--level", `${fillPercent}%`);
 
       // ピークの更新と表示時間管理
       if (Number.isFinite(peak) && peak !== null) {
